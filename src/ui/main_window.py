@@ -298,10 +298,7 @@ class MainWindow(QMainWindow):
         self._update_viewer()
     
     def _create_main_layout(self) -> None:
-        central = QWidget()
-        self.main_page.setLayout(central)
-        layout = QVBoxLayout(central)
-        layout = QVBoxLayout(central)
+        layout = QVBoxLayout(self.main_page)
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(5)
         
