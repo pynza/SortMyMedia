@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QFrame, QMessageBox,
-    QSizePolicy, QScrollArea, QStatusBar, QDialog
+    QSizePolicy, QScrollArea, QStatusBar, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
@@ -93,16 +93,12 @@ QScrollArea {
 """
 
 
-class SetupWindow(QDialog):
+class SetupPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.source_folders: list[Path] = []
         self.dest_folders: list[tuple[str, Path]] = []
         self.folder_count = 0
-        
-        self.setWindowTitle("SortMyMedia - Setup")
-        self.setFixedSize(700, 500)
-        self.setStyleSheet(DARK_STYLE)
         
         self._create_layout()
         
@@ -179,15 +175,9 @@ class SetupWindow(QDialog):
         
         bottom_layout.addStretch()
         
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("background-color: #555555;")
-        cancel_btn.clicked.connect(self.close)
-        bottom_layout.addWidget(cancel_btn)
-        
         self.start_btn = QPushButton("Start Sorting")
         self.start_btn.setEnabled(False)
-        self.start_btn.setStyleSheet("background-color: #1976d2;")
-        self.start_btn.clicked.connect(self._start)
+        self.start_btn.setStyleSheet("background-color: #1976d2; color: white;")
         bottom_layout.addWidget(self.start_btn)
         
         layout.addLayout(bottom_layout)
@@ -239,9 +229,6 @@ class SetupWindow(QDialog):
                 self.status_label.setText("Add at least one source folder")
             else:
                 self.status_label.setText("Add at least one destination folder")
-    
-    def _start(self) -> None:
-        self.close()
 
 
 class ImageViewer(QLabel):
@@ -285,27 +272,35 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 700)
         self.setStyleSheet(DARK_STYLE)
         
-        self.setup = SetupWindow(self)
-        self.setup.finished.connect(self._on_setup_finished)
-        self.setup.show()
+        self.pages = QStackedWidget()
+        self.setCentralWidget(self.pages)
         
-    def _on_setup_finished(self) -> None:
-        if not self.setup.source_folders:
+        self.setup_page = SetupPage()
+        self.setup_page.start_btn.clicked.connect(self._on_start_sorting)
+        
+        self.main_page = QWidget()
+        self.pages.addWidget(self.setup_page)
+        self.pages.addWidget(self.main_page)
+        
+    def _on_start_sorting(self) -> None:
+        if not self.setup_page.source_folders:
             self.close()
             return
         
-        for path in self.setup.source_folders:
+        for path in self.setup_page.source_folders:
             self.session.add_source_folder(path)
         
-        for name, path in self.setup.dest_folders:
+        for name, path in self.setup_page.dest_folders:
             self.session.add_destination_folder(path, name)
         
-        self._create_layout()
+        self._create_main_layout()
+        self.pages.setCurrentIndex(1)
         self._update_viewer()
     
-    def _create_layout(self) -> None:
+    def _create_main_layout(self) -> None:
         central = QWidget()
-        self.setCentralWidget(central)
+        self.main_page.setLayout(central)
+        layout = QVBoxLayout(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(5)
