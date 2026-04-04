@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QFrame, QMessageBox,
-    QSizePolicy, QScrollArea, QStatusBar, QStackedWidget
+    QSizePolicy, QScrollArea, QStatusBar, QStackedWidget, QInputDialog,
+    QListWidgetItem, QDialog
 )
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
 from pathlib import Path
@@ -13,6 +15,7 @@ import os
 from src.logic.session import Session
 from src.models.folder_config import FolderConfig
 from src.logic.file_manager import FileManager
+from src.logic.config_manager import ConfigManager
 
 try:
     from PIL import Image
@@ -93,12 +96,138 @@ QScrollArea {
 """
 
 
+class ConfigDialog(QDialog):
+    config_loaded = pyqtSignal(object)
+    config_saved = pyqtSignal(str)
+    
+    def __init__(self, config_manager, parent=None):
+        super().__init__(parent)
+        
+        self.config_manager = config_manager
+        self.parent_setup = parent
+        
+        self.setWindowTitle("Configurations")
+        self.setMinimumSize(500, 400)
+        self.setStyleSheet(DARK_STYLE)
+        
+        self._create_layout()
+        self._refresh_list()
+    
+    def _create_layout(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        title = QLabel("Saved Configurations")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #4fc3f7;")
+        layout.addWidget(title)
+        
+        self.config_list = QListWidget()
+        layout.addWidget(self.config_list, stretch=1)
+        
+        btn_layout = QHBoxLayout()
+        
+        load_btn = QPushButton("Load Selected")
+        load_btn.setStyleSheet("background-color: #1976d2; color: white;")
+        load_btn.clicked.connect(self._on_load)
+        btn_layout.addWidget(load_btn)
+        
+        new_btn = QPushButton("+ New")
+        new_btn.setStyleSheet("background-color: #27ae60; color: white;")
+        new_btn.clicked.connect(self._on_new)
+        btn_layout.addWidget(new_btn)
+        
+        rename_btn = QPushButton("Rename")
+        rename_btn.clicked.connect(self._on_rename)
+        btn_layout.addWidget(rename_btn)
+        
+        delete_btn = QPushButton("Delete")
+        delete_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        delete_btn.clicked.connect(self._on_delete)
+        btn_layout.addWidget(delete_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+    
+    def _refresh_list(self) -> None:
+        self.config_list.clear()
+        configs = self.config_manager.list_configs()
+        
+        for config in configs:
+            item = QListWidgetItem(f"📁 {config['name']}  ({config['sources']} sources, {config['destinations']} dests)")
+            item.setData(1, config['name'])
+            self.config_list.addItem(item)
+        
+        if not configs:
+            self.config_list.addItem("No saved configurations")
+    
+    def _on_new(self) -> None:
+        name, ok = QInputDialog.getText(self, "New Configuration", "Enter configuration name:")
+        if ok and name:
+            if self.parent_setup and hasattr(self.parent_setup, '_save_as_config'):
+                if self.parent_setup._save_as_config(name):
+                    self.config_saved.emit(name)
+                    self._refresh_list()
+                    QMessageBox.information(self, "Success", f"Configuration '{name}' saved.")
+                else:
+                    QMessageBox.warning(self, "Warning", "Add at least one source and one destination folder first.")
+    
+    def _on_load(self) -> None:
+        current = self.config_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Warning", "Select a configuration first.")
+            return
+        
+        name = current.data(1)
+        if not name:
+            return
+        
+        config = self.config_manager.load(name)
+        if config:
+            self.config_loaded.emit(config)
+            self.close()
+    
+    def _on_rename(self) -> None:
+        current = self.config_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Warning", "Select a configuration first.")
+            return
+        
+        old_name = current.data(1)
+        if not old_name:
+            return
+        
+        new_name, ok = QInputDialog.getText(self, "Rename Configuration", "Enter new name:", text=old_name)
+        if ok and new_name and new_name != old_name:
+            if self.config_manager.rename(old_name, new_name):
+                self._refresh_list()
+                QMessageBox.information(self, "Success", f"Renamed to '{new_name}'.")
+            else:
+                QMessageBox.warning(self, "Error", "Could not rename. Name might already exist.")
+    
+    def _on_delete(self) -> None:
+        current = self.config_list.currentItem()
+        if not current:
+            QMessageBox.warning(self, "Warning", "Select a configuration first.")
+            return
+        
+        name = current.data(1)
+        if not name:
+            return
+        
+        if self.config_manager.delete(name):
+            self._refresh_list()
+
+
 class SetupPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.source_folders: list[Path] = []
         self.dest_folders: list[tuple[str, Path]] = []
         self.folder_count = 0
+        self.config_manager = ConfigManager()
         
         self._create_layout()
         
@@ -107,9 +236,18 @@ class SetupPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(10)
         
+        title_layout = QHBoxLayout()
         title = QLabel("SortMyMedia")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #4fc3f7;")
-        layout.addWidget(title)
+        title_layout.addWidget(title)
+        
+        title_layout.addStretch()
+        
+        config_btn = QPushButton("⚙️ Config")
+        config_btn.clicked.connect(self._show_config_menu)
+        title_layout.addWidget(config_btn)
+        
+        layout.addLayout(title_layout)
         
         subtitle = QLabel("Sort your files into destination folders")
         subtitle.setStyleSheet("color: #888888;")
@@ -169,6 +307,11 @@ class SetupPage(QWidget):
         
         bottom_layout = QHBoxLayout()
         
+        clear_btn = QPushButton("Reset Selections")
+        clear_btn.setStyleSheet("background-color: #555555;")
+        clear_btn.clicked.connect(self._clear_config)
+        bottom_layout.addWidget(clear_btn)
+        
         self.status_label = QLabel("Add at least one source and one destination folder")
         self.status_label.setStyleSheet("color: #888888;")
         bottom_layout.addWidget(self.status_label)
@@ -181,6 +324,107 @@ class SetupPage(QWidget):
         bottom_layout.addWidget(self.start_btn)
         
         layout.addLayout(bottom_layout)
+    
+    def _show_config_menu(self) -> None:
+        dialog = ConfigDialog(self.config_manager, self)
+        dialog.setModal(True)
+        dialog.config_loaded.connect(self._on_config_loaded)
+        dialog.config_saved.connect(self._on_config_saved)
+        dialog.exec()
+    
+    def _on_config_loaded(self, config) -> None:
+        self.source_folders = []
+        self.dest_folders = []
+        self.source_list.clear()
+        self.dest_list.clear()
+        self.folder_count = 0
+        
+        for path_str in config.sources:
+            path = Path(path_str)
+            if path.exists():
+                self.source_folders.append(path)
+                self.source_list.addItem(f"📁 {path.name}")
+        
+        for dest in config.destinations:
+            dest_path = Path(dest.path)
+            if dest_path.exists():
+                self.folder_count += 1
+                self.dest_folders.append((dest.name, dest_path))
+                self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
+        
+        self._check_ready()
+    
+    def _on_config_saved(self, name: str) -> None:
+        pass
+
+    def _clear_config(self) -> None:
+        self.source_folders = []
+        self.dest_folders = []
+        self.source_list.clear()
+        self.dest_list.clear()
+        self.folder_count = 0
+        self._check_ready()
+
+    def _save_as_config(self, name: str) -> bool:
+        if not self.source_folders or not self.dest_folders:
+            return False
+        self.config_manager.save(self.source_folders, self.dest_folders, name)
+        return True
+    
+    def _export_config(self) -> None:
+        if not self.source_folders or not self.dest_folders:
+            QMessageBox.warning(self, "Warning", "Add at least one source and one destination folder first.")
+            return
+        
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Configuration", "", 
+            "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        if path:
+            export_path = Path(path)
+            if export_path.suffix not in ['.yaml', '.yml']:
+                export_path = export_path.with_suffix('.yaml')
+            
+            self.config_manager.export_to_file(self.source_folders, self.dest_folders, export_path)
+            QMessageBox.information(self, "Success", f"Configuration exported to:\n{export_path}")
+    
+    def _import_config(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Configuration", "",
+            "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        if path:
+            config = self.config_manager.import_from_file(Path(path))
+            if config is None:
+                QMessageBox.warning(self, "Error", "Failed to load configuration from file.")
+                return
+            
+            name, ok = QInputDialog.getText(self, "Import Configuration", "Enter a name for this configuration:")
+            if not ok or not name:
+                return
+            
+            self.source_folders = []
+            self.dest_folders = []
+            self.source_list.clear()
+            self.dest_list.clear()
+            self.folder_count = 0
+            
+            for path_str in config.sources:
+                path_obj = Path(path_str)
+                if path_obj.exists():
+                    self.source_folders.append(path_obj)
+                    self.source_list.addItem(f"📁 {path_obj.name}")
+            
+            for dest in config.destinations:
+                dest_path = Path(dest.path)
+                if dest_path.exists():
+                    self.folder_count += 1
+                    self.dest_folders.append((dest.name, dest_path))
+                    self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
+            
+            self.config_manager.save(self.source_folders, self.dest_folders, name)
+            self._check_ready()
+            QMessageBox.information(self, "Success", f"Configuration '{name}' imported and saved.")
         
     def _add_source(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Source Folder")
