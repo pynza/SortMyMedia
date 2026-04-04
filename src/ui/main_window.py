@@ -57,22 +57,6 @@ QPushButton:disabled {
     background-color: #2a2a2a;
     color: #666666;
 }
-QListWidget {
-    background-color: #252525;
-    border: 1px solid #3a3a3a;
-    border-radius: 6px;
-    padding: 5px;
-}
-QListWidget::item {
-    padding: 8px;
-    border-radius: 4px;
-}
-QListWidget::item:selected {
-    background-color: #0d47a1;
-}
-QListWidget::item:hover {
-    background-color: #2a2a2a;
-}
 QLabel {
     background-color: transparent;
     color: #e0e0e0;
@@ -97,14 +81,15 @@ QScrollArea {
 
 
 class ConfigDialog(QDialog):
-    config_loaded = pyqtSignal(object)
+    config_loaded = pyqtSignal(object, str)
     config_saved = pyqtSignal(str)
     
-    def __init__(self, config_manager, parent=None):
+    def __init__(self, config_manager, parent=None, active_config_name=None):
         super().__init__(parent)
         
         self.config_manager = config_manager
         self.parent_setup = parent
+        self.active_config_name = active_config_name
         
         self.setWindowTitle("Configurations")
         self.setMinimumSize(500, 400)
@@ -122,6 +107,27 @@ class ConfigDialog(QDialog):
         layout.addWidget(title)
         
         self.config_list = QListWidget()
+        self.config_list.setStyleSheet("""
+            QListWidget {
+                background: #252525;
+                border: 1px solid #3a3a3a;
+                border-radius: 6px;
+                outline: 0;
+            }
+            QListWidget::item {
+                background: transparent;
+                color: #e0e0e0;
+                padding: 10px;
+                margin: 2px 0;
+            }
+            QListWidget::item:selected {
+                background: #0d47a1;
+                color: #ffffff;
+            }
+            QListWidget::item:hover:!selected {
+                background: #3a3a3a;
+            }
+        """)
         layout.addWidget(self.config_list, stretch=1)
         
         btn_layout = QHBoxLayout()
@@ -162,6 +168,14 @@ class ConfigDialog(QDialog):
         
         if not configs:
             self.config_list.addItem("No saved configurations")
+        
+        if self.active_config_name:
+            for i in range(self.config_list.count()):
+                item = self.config_list.item(i)
+                if item.data(1) == self.active_config_name:
+                    item.setSelected(True)
+                    self.config_list.setCurrentItem(item)
+                    break
     
     def _on_new(self) -> None:
         name, ok = QInputDialog.getText(self, "New Configuration", "Enter configuration name:")
@@ -186,7 +200,7 @@ class ConfigDialog(QDialog):
         
         config = self.config_manager.load(name)
         if config:
-            self.config_loaded.emit(config)
+            self.config_loaded.emit(config, name)
             self.close()
     
     def _on_rename(self) -> None:
@@ -228,6 +242,7 @@ class SetupPage(QWidget):
         self.dest_folders: list[tuple[str, Path]] = []
         self.folder_count = 0
         self.config_manager = ConfigManager()
+        self.active_config_name: Optional[str] = None
         
         self._create_layout()
         
@@ -266,6 +281,27 @@ class SetupPage(QWidget):
         sources_layout.addWidget(sources_label)
         
         self.source_list = QListWidget()
+        self.source_list.setStyleSheet("""
+            QListWidget {
+                background: #252525;
+                border: 1px solid #3a3a3a;
+                border-radius: 6px;
+                outline: 0;
+            }
+            QListWidget::item {
+                background: transparent;
+                color: #e0e0e0;
+                padding: 10px;
+                margin: 2px 0;
+            }
+            QListWidget::item:selected {
+                background: #0d47a1;
+                color: #ffffff;
+            }
+            QListWidget::item:hover:!selected {
+                background: #3a3a3a;
+            }
+        """)
         sources_layout.addWidget(self.source_list)
         
         sources_btn_layout = QHBoxLayout()
@@ -288,6 +324,27 @@ class SetupPage(QWidget):
         dests_layout.addWidget(dests_label)
         
         self.dest_list = QListWidget()
+        self.dest_list.setStyleSheet("""
+            QListWidget {
+                background: #252525;
+                border: 1px solid #3a3a3a;
+                border-radius: 6px;
+                outline: 0;
+            }
+            QListWidget::item {
+                background: transparent;
+                color: #e0e0e0;
+                padding: 10px;
+                margin: 2px 0;
+            }
+            QListWidget::item:selected {
+                background: #0d47a1;
+                color: #ffffff;
+            }
+            QListWidget::item:hover:!selected {
+                background: #3a3a3a;
+            }
+        """)
         dests_layout.addWidget(self.dest_list)
         
         dests_btn_layout = QHBoxLayout()
@@ -326,18 +383,19 @@ class SetupPage(QWidget):
         layout.addLayout(bottom_layout)
     
     def _show_config_menu(self) -> None:
-        dialog = ConfigDialog(self.config_manager, self)
+        dialog = ConfigDialog(self.config_manager, self, self.active_config_name)
         dialog.setModal(True)
         dialog.config_loaded.connect(self._on_config_loaded)
         dialog.config_saved.connect(self._on_config_saved)
         dialog.exec()
     
-    def _on_config_loaded(self, config) -> None:
+    def _on_config_loaded(self, config, name) -> None:
         self.source_folders = []
         self.dest_folders = []
         self.source_list.clear()
         self.dest_list.clear()
         self.folder_count = 0
+        self.active_config_name = name
         
         for path_str in config.sources:
             path = Path(path_str)
@@ -363,6 +421,7 @@ class SetupPage(QWidget):
         self.source_list.clear()
         self.dest_list.clear()
         self.folder_count = 0
+        self.active_config_name = None
         self._check_ready()
 
     def _save_as_config(self, name: str) -> bool:
