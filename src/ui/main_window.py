@@ -258,6 +258,10 @@ class SetupPage(QWidget):
         
         title_layout.addStretch()
         
+        self.config_name_label = QLabel("")
+        self.config_name_label.setStyleSheet("color: #888888; font-size: 12px;")
+        title_layout.addWidget(self.config_name_label)
+        
         config_btn = QPushButton("⚙️ Config")
         config_btn.clicked.connect(self._show_config_menu)
         title_layout.addWidget(config_btn)
@@ -411,9 +415,19 @@ class SetupPage(QWidget):
                 self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
         
         self._check_ready()
+        self._update_config_label()
     
     def _on_config_saved(self, name: str) -> None:
-        pass
+        self.active_config_name = name
+        self._update_config_label()
+
+    def _update_config_label(self) -> None:
+        if self.active_config_name:
+            self.config_name_label.setText(f"📂 {self.active_config_name}")
+            self.config_name_label.setStyleSheet("color: #27ae60; font-size: 12px; font-weight: bold;")
+        else:
+            self.config_name_label.setText("No config loaded")
+            self.config_name_label.setStyleSheet("color: #888888; font-size: 12px;")
 
     def _clear_config(self) -> None:
         self.source_folders = []
@@ -422,6 +436,7 @@ class SetupPage(QWidget):
         self.dest_list.clear()
         self.folder_count = 0
         self.active_config_name = None
+        self._update_config_label()
         self._check_ready()
 
     def _save_as_config(self, name: str) -> bool:
