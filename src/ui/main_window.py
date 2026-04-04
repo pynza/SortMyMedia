@@ -513,10 +513,9 @@ class SetupPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, "Select Destination Folder")
         if path:
             path = Path(path)
-            self.folder_count += 1
-            name = f"Folder {self.folder_count}"
+            name = path.name
             self.dest_folders.append((name, path))
-            self.dest_list.addItem(f"📂 {name} ({path.name})")
+            self.dest_list.addItem(f"📂 {name}")
             self._check_ready()
     
     def _remove_source(self) -> None:
@@ -615,6 +614,9 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(1)
         self._update_viewer()
     
+    def _back_to_setup(self) -> None:
+        self.pages.setCurrentIndex(0)
+    
     def _create_main_layout(self) -> None:
         layout = QVBoxLayout(self.main_page)
         layout.setContentsMargins(15, 10, 15, 10)
@@ -625,8 +627,13 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
+        back_btn = QPushButton("← Config")
+        back_btn.setStyleSheet("background-color: #555555; padding: 5px 10px;")
+        back_btn.clicked.connect(self._back_to_setup)
+        header_layout.addWidget(back_btn)
+        
         self.progress_label = QLabel("File 0/0")
-        self.progress_label.setStyleSheet("font-size: 14px;")
+        self.progress_label.setStyleSheet("font-size: 14px; margin-left: 10px;")
         header_layout.addWidget(self.progress_label)
         
         self.file_name_label = QLabel("")
@@ -662,14 +669,6 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(nav_frame)
         
         controls_layout.addStretch()
-        
-        skip_btn = QPushButton("⏭ SKIP")
-        skip_btn.setStyleSheet("background-color: #e67e22;")
-        skip_btn.clicked.connect(self._skip_file)
-        controls_layout.addWidget(skip_btn)
-        
-        sort_label = QLabel("Sort to:")
-        controls_layout.addWidget(sort_label)
         
         self.sort_buttons_frame = QWidget()
         self.sort_buttons_layout = QHBoxLayout(self.sort_buttons_frame)
