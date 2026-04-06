@@ -49,9 +49,16 @@ class ConfigManager:
         safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in name)
         return self.configs_dir / f"{safe_name}.yaml"
 
-    def save(self, sources: list[Path], destinations: list[tuple[str, Path]], 
-             name: str, keybindings: Optional[KeyBindings] = None) -> Path:
+    def save(self, sources: list[Path], destinations: list, 
+             name: str, keybindings: Optional[dict] = None) -> Path:
         path = self._get_config_path(name)
+        
+        kb = KeyBindings()
+        if keybindings:
+            kb.previous = keybindings.get('previous', 'Left')
+            kb.next = keybindings.get('next', 'Right')
+            kb.undo = keybindings.get('undo', 'Z')
+            kb.destinations = {k.replace('dest_', ''): v for k, v in keybindings.items() if k.startswith('dest_')}
 
         config = AppConfig(
             sources=[str(s) for s in sources],
@@ -59,7 +66,7 @@ class ConfigManager:
                 FolderConfigData(name=dest_name, path=str(dest_path), key=key or "")
                 for dest_name, dest_path, key in destinations
             ],
-            keybindings=keybindings or KeyBindings()
+            keybindings=kb
         )
 
         with open(path, 'w') as f:
@@ -149,15 +156,22 @@ class ConfigManager:
             return self.last_config_file.read_text().strip()
         return None
 
-    def export_to_file(self, sources: list[Path], destinations: list[tuple[str, Path]],
-                       path: Path, keybindings: Optional[KeyBindings] = None) -> Path:
+    def export_to_file(self, sources: list[Path], destinations: list,
+                       path: Path, keybindings: Optional[dict] = None) -> Path:
+        kb = KeyBindings()
+        if keybindings:
+            kb.previous = keybindings.get('previous', 'Left')
+            kb.next = keybindings.get('next', 'Right')
+            kb.undo = keybindings.get('undo', 'Z')
+            kb.destinations = {k.replace('dest_', ''): v for k, v in keybindings.items() if k.startswith('dest_')}
+        
         config = AppConfig(
             sources=[str(s) for s in sources],
             destinations=[
                 FolderConfigData(name=dest_name, path=str(dest_path), key=key or "")
                 for dest_name, dest_path, key in destinations
             ],
-            keybindings=keybindings or KeyBindings()
+            keybindings=kb
         )
 
         with open(path, 'w') as f:

@@ -277,12 +277,13 @@ class ConfigDialog(QDialog):
 
 
 class KeyCaptureHelper(QObject):
-    def __init__(self, line_edit, key_name, keybindings, callback):
+    def __init__(self, line_edit, key_name, keybindings, callback, display_name=""):
         super().__init__()
         self.line_edit = line_edit
         self.key_name = key_name
         self.keybindings = keybindings
         self.callback = callback
+        self.display_name = display_name or key_name
     
     def eventFilter(self, obj, event):
         if event.type() == event.Type.KeyPress:
@@ -398,10 +399,6 @@ class KeyBindingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         
-        self.active_key_label = QLabel("Click a field to set keybinding")
-        self.active_key_label.setStyleSheet("color: #ffb300; font-size: 12px; font-weight: bold; min-height: 20px;")
-        layout.addWidget(self.active_key_label)
-        
         nav_label = QLabel("Navigation Keys")
         nav_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(nav_label)
@@ -473,8 +470,8 @@ class KeyBindingsDialog(QDialog):
         
         layout.addLayout(btn_layout)
         
-        self.warning_label = QLabel("")
-        self.warning_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
+        self.warning_label = QLabel("⚠️ Keybindings are not saved in config")
+        self.warning_label.setStyleSheet("color: #888888; font-size: 11px;")
         layout.addWidget(self.warning_label)
     
     def _setup_key_capture(self, line_edit, key_name, display_name=""):
@@ -496,11 +493,9 @@ class KeyBindingsDialog(QDialog):
         if self.active_lineedit == line_edit:
             self.active_lineedit.setStyleSheet("")
             self.active_lineedit = None
-            self.active_key_label.setText("Click a field to set keybinding")
         else:
             line_edit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
             self.active_lineedit = line_edit
-            self.active_key_label.setText(f"Press a key for: {display_name or key_name}")
     
     def _check_duplicates(self):
         duplicates = []
@@ -517,16 +512,17 @@ class KeyBindingsDialog(QDialog):
         
         if duplicates:
             self.warning_label.setText(f"⚠️ Duplicate bindings: {list(set([self.keybindings.get(d, d) for d in duplicates]))}")
+            self.warning_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
             for key in duplicates:
                 for helper in self.capture_helpers:
                     if helper.key_name == key:
                         helper.line_edit.setStyleSheet("border: 2px solid #e74c3c; color: #e74c3c;")
         else:
-            self.warning_label.setText("")
+            self.warning_label.setText("⚠️ Keybindings are not saved in config")
+            self.warning_label.setStyleSheet("color: #888888; font-size: 11px;")
         
         if self.active_lineedit:
             self.active_lineedit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
-            self.active_key_label.setText("Click a field to set keybinding")
     
     def _save(self) -> None:
         duplicates = []
@@ -723,18 +719,26 @@ class SetupPage(QWidget):
         self.folder_count = 0
         self.active_config_name = name
         
+        self.keybindings = {
+            'previous': 'Left',
+            'next': 'Right',
+            'undo': 'Z'
+        }
+        
         for path_str in config.sources:
             path = Path(path_str)
             if path.exists():
                 self.source_folders.append(path)
                 self.source_list.addItem(f"📁 {path.name}")
         
-        for dest in config.destinations:
+        for i, dest in enumerate(config.destinations):
             dest_path = Path(dest.path)
             if dest_path.exists():
                 self.folder_count += 1
                 key = dest.key if hasattr(dest, 'key') else ''
                 self.dest_folders.append((dest.name, dest_path, key))
+                if key:
+                    self.keybindings[f'dest_{i}'] = key
                 self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
         
         self._check_ready()
@@ -765,7 +769,7 @@ class SetupPage(QWidget):
     def _save_as_config(self, name: str) -> bool:
         if not self.source_folders or not self.dest_folders:
             return False
-        self.config_manager.save(self.source_folders, self.dest_folders, name)
+        self.config_manager.save(self.source_folders, self.dest_folders, name, self.keybindings)
         return True
     
     def _export_config(self) -> None:
@@ -782,7 +786,7 @@ class SetupPage(QWidget):
             if export_path.suffix not in ['.yaml', '.yml']:
                 export_path = export_path.with_suffix('.yaml')
             
-            self.config_manager.export_to_file(self.source_folders, self.dest_folders, export_path)
+            self.config_manager.export_to_file(self.source_folders, self.dest_folders, export_path, self.keybindings)
             QMessageBox.information(self, "Success", f"Configuration exported to:\n{export_path}")
     
     def _import_config(self) -> None:
@@ -820,7 +824,7 @@ class SetupPage(QWidget):
                     self.dest_folders.append((dest.name, dest_path, key))
                     self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
             
-            self.config_manager.save(self.source_folders, self.dest_folders, name)
+            self.config_manager.save(self.source_folders, self.dest_folders, name, self.keybindings)
             self._check_ready()
             QMessageBox.information(self, "Success", f"Configuration '{name}' imported and saved.")
         
