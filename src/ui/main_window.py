@@ -354,6 +354,7 @@ class KeyBindingsDialog(QDialog):
         self.keybindings = keybindings.copy()
         self.destinations = destinations
         self.capture_helpers = []
+        self.active_lineedit = None
         self.setWindowTitle("Key Bindings")
         self.setMinimumWidth(400)
         self.setStyleSheet("""
@@ -382,12 +383,24 @@ class KeyBindingsDialog(QDialog):
                 color: #4a9eff;
                 font-weight: bold;
             }
+            QLineEdit.active {
+                border: 2px solid #ffb300;
+                background-color: #2a2a1a;
+            }
+            QLineEdit.duplicate {
+                border: 2px solid #e74c3c;
+                color: #e74c3c;
+            }
         """)
         self._create_layout()
     
     def _create_layout(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
+        
+        self.active_key_label = QLabel("Click a field to set keybinding")
+        self.active_key_label.setStyleSheet("color: #ffb300; font-size: 12px; font-weight: bold; min-height: 20px;")
+        layout.addWidget(self.active_key_label)
         
         nav_label = QLabel("Navigation Keys")
         nav_label.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -399,17 +412,20 @@ class KeyBindingsDialog(QDialog):
         
         self.prev_key = QLineEdit(self.keybindings.get('previous', 'Left'))
         self.prev_key.setReadOnly(True)
-        self._setup_key_capture(self.prev_key, 'previous')
+        self.prev_key.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self._setup_key_capture(self.prev_key, 'previous', 'Previous')
         nav_layout.addRow("Previous:", self.prev_key)
         
         self.next_key = QLineEdit(self.keybindings.get('next', 'Right'))
         self.next_key.setReadOnly(True)
-        self._setup_key_capture(self.next_key, 'next')
+        self.next_key.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self._setup_key_capture(self.next_key, 'next', 'Next')
         nav_layout.addRow("Next:", self.next_key)
         
         self.undo_key = QLineEdit(self.keybindings.get('undo', 'Z'))
         self.undo_key.setReadOnly(True)
-        self._setup_key_capture(self.undo_key, 'undo')
+        self.undo_key.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self._setup_key_capture(self.undo_key, 'undo', 'Undo')
         nav_layout.addRow("Undo:", self.undo_key)
         
         layout.addWidget(nav_frame)
@@ -429,8 +445,9 @@ class KeyBindingsDialog(QDialog):
                 current_key = dest[2] if len(dest) > 2 else ''
                 key_edit = QLineEdit(current_key)
                 key_edit.setReadOnly(True)
+                key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
                 key_name = f"dest_{i}"
-                self._setup_key_capture(key_edit, key_name)
+                self._setup_key_capture(key_edit, key_name, f'{name}')
                 dest_layout.addRow(f"{name}:", key_edit)
                 self.dest_widgets[key_name] = key_edit
             
@@ -455,13 +472,76 @@ class KeyBindingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         
         layout.addLayout(btn_layout)
+        
+        self.warning_label = QLabel("")
+        self.warning_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
+        layout.addWidget(self.warning_label)
     
-    def _setup_key_capture(self, line_edit, key_name):
-        helper = KeyCaptureHelper(line_edit, key_name, self.keybindings, lambda: None)
+    def _setup_key_capture(self, line_edit, key_name, display_name=""):
+        def on_keyset():
+            self._check_duplicates()
+        
+        helper = KeyCaptureHelper(line_edit, key_name, self.keybindings, on_keyset)
+        helper.display_name = display_name or key_name
         line_edit.installEventFilter(helper)
+        
+        line_edit.mousePressEvent = lambda e, le=line_edit, kn=key_name, dn=display_name: self._activate_field(le, kn, dn)
+        
         self.capture_helpers.append(helper)
     
+    def _activate_field(self, line_edit, key_name, display_name=""):
+        if self.active_lineedit and self.active_lineedit != line_edit:
+            self.active_lineedit.setStyleSheet("")
+        
+        if self.active_lineedit == line_edit:
+            self.active_lineedit.setStyleSheet("")
+            self.active_lineedit = None
+            self.active_key_label.setText("Click a field to set keybinding")
+        else:
+            line_edit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
+            self.active_lineedit = line_edit
+            self.active_key_label.setText(f"Press a key for: {display_name or key_name}")
+    
+    def _check_duplicates(self):
+        duplicates = []
+        seen = {}
+        for key, value in self.keybindings.items():
+            if value and value in seen:
+                duplicates.append(key)
+                duplicates.append(seen[value])
+            elif value:
+                seen[value] = key
+        
+        for helper in self.capture_helpers:
+            helper.line_edit.setStyleSheet("")
+        
+        if duplicates:
+            self.warning_label.setText(f"⚠️ Duplicate bindings: {list(set([self.keybindings.get(d, d) for d in duplicates]))}")
+            for key in duplicates:
+                for helper in self.capture_helpers:
+                    if helper.key_name == key:
+                        helper.line_edit.setStyleSheet("border: 2px solid #e74c3c; color: #e74c3c;")
+        else:
+            self.warning_label.setText("")
+        
+        if self.active_lineedit:
+            self.active_lineedit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
+            self.active_key_label.setText("Click a field to set keybinding")
+    
     def _save(self) -> None:
+        duplicates = []
+        seen = {}
+        for key, value in self.keybindings.items():
+            if value and value in seen:
+                duplicates.append(value)
+            elif value:
+                seen[value] = key
+        
+        if duplicates:
+            QMessageBox.warning(self, "Duplicate Key Bindings", 
+                f"These keys are assigned multiple times: {duplicates}\n\nPlease fix before saving.")
+            return
+        
         self.keybindings_changed.emit(self.keybindings)
         self.accept()
 
