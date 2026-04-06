@@ -2,10 +2,16 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QFrame, QMessageBox,
     QSizePolicy, QScrollArea, QStatusBar, QStackedWidget, QInputDialog,
-    QListWidgetItem, QDialog
+    QListWidgetItem, QDialog, QSlider
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QTimer, QUrl, Qt, QSize
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
+from PyQt6.QtCore import pyqtSignal, QTimer, QUrl
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
 from pathlib import Path
 from typing import Optional
@@ -76,6 +82,46 @@ QStatusBar {
 }
 QScrollArea {
     border: none;
+}
+QScrollBar:vertical {
+    background: #2a2a2a;
+    width: 10px;
+    border-radius: 5px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #555555;
+    border-radius: 4px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #666666;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+QScrollBar:horizontal {
+    background: #2a2a2a;
+    height: 10px;
+    border-radius: 5px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #555555;
+    border-radius: 4px;
+    min-width: 30px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #666666;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
 }
 """
 
@@ -577,6 +623,219 @@ class ImageViewer(QLabel):
             painter.drawPixmap(x, y, scaled)
 
 
+class ClickableSlider(QSlider):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._dragging = False
+    
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._update_value_from_pos(ev.position().x())
+        super().mousePressEvent(ev)
+    
+    def mouseMoveEvent(self, ev):
+        if self._dragging:
+            self._update_value_from_pos(ev.position().x())
+        super().mouseMoveEvent(ev)
+    
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+        super().mouseReleaseEvent(ev)
+    
+    def _update_value_from_pos(self, x):
+        try:
+            min_val, max_val = self.minimum(), self.maximum()
+            if max_val > min_val:
+                ratio = max(0, min(1, x / self.width()))
+                value = int(min_val + (max_val - min_val) * ratio)
+                self.setValue(value)
+                self.sliderMoved.emit(value)
+        except Exception:
+            pass
+
+
+class VideoPlayerWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                border-radius: 8px;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        self.video_widget = QVideoWidget()
+        self.video_widget.setMinimumSize(320, 180)
+        self.video_widget.setStyleSheet("border-radius: 8px 8px 0 0;")
+        self.video_widget.mousePressEvent = self._on_video_click
+        layout.addWidget(self.video_widget, stretch=1)
+        
+        self.media_player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.setVideoOutput(self.video_widget)
+        
+        controls_frame = QFrame()
+        controls_frame.setStyleSheet("""
+            QFrame {
+                background-color: rgba(0, 0, 0, 0.9);
+                border-radius: 0 0 8px 8px;
+            }
+            QLabel {
+                color: #cccccc;
+                font-size: 12px;
+            }
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #ffffff;
+                padding: 6px 8px;
+                border-radius: 4px;
+                min-width: 28px;
+                max-width: 28px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+            ClickableSlider {
+                background: transparent;
+                border: none;
+                height: 20px;
+            }
+            ClickableSlider::groove:horizontal {
+                border: none;
+                height: 4px;
+                background: #3a3a3a;
+                border-radius: 2px;
+            }
+            ClickableSlider::handle:horizontal {
+                background: #4a9eff;
+                width: 14px;
+                border-radius: 7px;
+                margin: -5px 0;
+            }
+            ClickableSlider::sub-page:horizontal {
+                background: #4a9eff;
+                border-radius: 2px;
+            }
+        """)
+        controls_layout = QVBoxLayout(controls_frame)
+        controls_layout.setContentsMargins(12, 6, 12, 6)
+        controls_layout.setSpacing(4)
+        
+        self.progress_slider = ClickableSlider(Qt.Orientation.Horizontal)
+        self.progress_slider.setRange(0, 0)
+        self.progress_slider.sliderMoved.connect(self._seek)
+        controls_layout.addWidget(self.progress_slider)
+        
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(12)
+        
+        self.play_btn = QPushButton("▶")
+        self.play_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.play_btn.clicked.connect(self._toggle_play)
+        buttons_layout.addWidget(self.play_btn)
+        
+        self.position_label = QLabel("00:00 / 00:00")
+        buttons_layout.addWidget(self.position_label)
+        
+        buttons_layout.addStretch()
+        
+        volume_layout = QHBoxLayout()
+        volume_layout.setSpacing(8)
+        
+        self.volume_btn = QPushButton("🔊")
+        self.volume_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.volume_btn.clicked.connect(self._toggle_mute)
+        volume_layout.addWidget(self.volume_btn)
+        
+        self.volume_slider = ClickableSlider(Qt.Orientation.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(100)
+        self.volume_slider.setFixedWidth(80)
+        self.volume_slider.valueChanged.connect(self._set_volume)
+        volume_layout.addWidget(self.volume_slider)
+        
+        buttons_layout.addLayout(volume_layout)
+        
+        controls_layout.addLayout(buttons_layout)
+        layout.addWidget(controls_frame)
+        
+        self.media_player.positionChanged.connect(self._position_changed)
+        self.media_player.durationChanged.connect(self._duration_changed)
+        self.media_player.playbackStateChanged.connect(self._playback_state_changed)
+    
+    def _on_video_click(self, event):
+        self._toggle_play()
+    
+    def load_video(self, path: Path) -> None:
+        url = QUrl.fromLocalFile(str(path))
+        self.media_player.setSource(url)
+        self.media_player.play()
+    
+    def clear(self) -> None:
+        self.media_player.stop()
+        self.position_label.setText("00:00 / 00:00")
+        self.progress_slider.setValue(0)
+    
+    def stop(self) -> None:
+        self.media_player.stop()
+    
+    def _toggle_play(self) -> None:
+        if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player.pause()
+        else:
+            self.media_player.play()
+    
+    def _seek(self, position: int) -> None:
+        self.media_player.setPosition(position)
+    
+    def _position_changed(self, position: int) -> None:
+        self.progress_slider.setValue(position)
+        duration = self.media_player.duration()
+        self.position_label.setText(f"{self._format_time(position)} / {self._format_time(duration)}")
+    
+    def _duration_changed(self, duration: int) -> None:
+        self.progress_slider.setRange(0, duration)
+    
+    def _playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.play_btn.setText("⏸")
+        else:
+            self.play_btn.setText("▶")
+    
+    def _toggle_mute(self) -> None:
+        if self.audio_output.isMuted():
+            self.audio_output.setMuted(False)
+            self.volume_btn.setText("🔊")
+        else:
+            self.audio_output.setMuted(True)
+            self.volume_btn.setText("🔇")
+    
+    def _set_volume(self, value: int) -> None:
+        self.audio_output.setVolume(value / 100)
+        if value == 0:
+            self.volume_btn.setText("🔇")
+        elif value < 50:
+            self.volume_btn.setText("🔉")
+        else:
+            self.volume_btn.setText("🔊")
+    
+    def _format_time(self, ms: int) -> str:
+        seconds = ms // 1000
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes:02d}:{seconds:02d}"
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -646,9 +905,15 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(header)
         
-        self.viewer = ImageViewer()
-        self.viewer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self.viewer, stretch=1)
+        self.viewer_container = QStackedWidget()
+        self.image_viewer = ImageViewer()
+        self.video_player = VideoPlayerWidget()
+        self.viewer_container.addWidget(self.image_viewer)
+        self.viewer_container.addWidget(self.video_player)
+        self.viewer_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.viewer_container, stretch=1)
+        
+        self.viewer = self.image_viewer
         
         controls = QWidget()
         controls_layout = QHBoxLayout(controls)
@@ -688,6 +953,8 @@ class MainWindow(QMainWindow):
         return None, None
     
     def _update_viewer(self) -> None:
+        self.video_player.stop()
+        
         for i in reversed(range(self.sort_buttons_layout.count())):
             widget = self.sort_buttons_layout.itemAt(i).widget()
             if widget:
@@ -696,6 +963,8 @@ class MainWindow(QMainWindow):
         source, current = self._get_current_file()
         
         if current is None:
+            self.viewer_container.setCurrentIndex(0)
+            self.viewer = self.image_viewer
             self.viewer.clear()
             self.viewer.setText("🎉 All files have been sorted!")
             self.file_name_label.setText("All done!")
@@ -728,13 +997,20 @@ class MainWindow(QMainWindow):
         video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'}
         
         if ext in image_exts:
+            self.viewer_container.setCurrentIndex(0)
+            self.viewer = self.image_viewer
             self._display_image(path)
         elif ext == '.pdf' and PYMUPDF_AVAILABLE:
+            self.viewer_container.setCurrentIndex(0)
+            self.viewer = self.image_viewer
             self._display_pdf(path)
         elif ext in video_exts:
-            self.viewer.clear()
-            self.viewer.setText(f"🎬 {ext.upper()[1:]} video\n\n{path.name}")
+            self.video_player.clear()
+            self.viewer_container.setCurrentIndex(1)
+            self.video_player.load_video(path)
         else:
+            self.viewer_container.setCurrentIndex(0)
+            self.viewer = self.image_viewer
             self.viewer.clear()
             self.viewer.setText(f"📄 {ext.upper()} file")
     
