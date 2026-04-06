@@ -277,15 +277,32 @@ class ConfigDialog(QDialog):
 
 
 class KeyCaptureHelper(QObject):
-    def __init__(self, line_edit, key_name, keybindings, callback, display_name=""):
+    def __init__(
+        self,
+        line_edit,
+        key_name,
+        keybindings,
+        callback,
+        display_name="",
+        on_focus_in=None,
+        on_focus_out=None,
+    ):
         super().__init__()
         self.line_edit = line_edit
         self.key_name = key_name
         self.keybindings = keybindings
         self.callback = callback
         self.display_name = display_name or key_name
-    
+        self.on_focus_in = on_focus_in
+        self.on_focus_out = on_focus_out
+
     def eventFilter(self, obj, event):
+        if event.type() == event.Type.FocusIn:
+            if self.on_focus_in:
+                self.on_focus_in(self.line_edit, self.key_name, self.display_name)
+        elif event.type() == event.Type.FocusOut:
+            if self.on_focus_out:
+                self.on_focus_out(self.line_edit)
         if event.type() == event.Type.KeyPress:
             key = event.key()
             if key in (Qt.Key.Key_Escape, Qt.Key.Key_Return):
@@ -349,7 +366,8 @@ class KeyCaptureHelper(QObject):
 
 class KeyBindingsDialog(QDialog):
     keybindings_changed = pyqtSignal(dict)
-    
+    _KEYBIND_ACTIVE_STYLE = "border: 2px solid #4a9eff; background-color: #1a2838;"
+
     def __init__(self, keybindings: dict, destinations: list, parent=None):
         super().__init__(parent)
         self.keybindings = keybindings.copy()
@@ -385,8 +403,8 @@ class KeyBindingsDialog(QDialog):
                 font-weight: bold;
             }
             QLineEdit.active {
-                border: 2px solid #ffb300;
-                background-color: #2a2a1a;
+                border: 2px solid #4a9eff;
+                background-color: #1a2838;
             }
             QLineEdit.duplicate {
                 border: 2px solid #e74c3c;
@@ -476,27 +494,44 @@ class KeyBindingsDialog(QDialog):
     
     def _setup_key_capture(self, line_edit, key_name, display_name=""):
         def on_keyset():
+            self.active_lineedit = line_edit
             self._check_duplicates()
-        
-        helper = KeyCaptureHelper(line_edit, key_name, self.keybindings, on_keyset)
-        helper.display_name = display_name or key_name
+
+        helper = KeyCaptureHelper(
+            line_edit,
+            key_name,
+            self.keybindings,
+            on_keyset,
+            display_name=display_name,
+            on_focus_in=self._on_capture_focus_in,
+            on_focus_out=self._on_capture_focus_out,
+        )
         line_edit.installEventFilter(helper)
         
-        line_edit.mousePressEvent = lambda e, le=line_edit, kn=key_name, dn=display_name: self._activate_field(le, kn, dn)
-        
+        def on_mouse_press(e):
+            self._activate_field(line_edit, key_name, display_name)
+            QLineEdit.mousePressEvent(line_edit, e)
+
+        line_edit.mousePressEvent = on_mouse_press
+
         self.capture_helpers.append(helper)
-    
-    def _activate_field(self, line_edit, key_name, display_name=""):
-        if self.active_lineedit and self.active_lineedit != line_edit:
-            self.active_lineedit.setStyleSheet("")
-        
+
+    def _on_capture_focus_in(self, line_edit, key_name: str, display_name: str = "") -> None:
+        self.active_lineedit = line_edit
+        self._check_duplicates()
+
+    def _on_capture_focus_out(self, line_edit) -> None:
         if self.active_lineedit == line_edit:
-            self.active_lineedit.setStyleSheet("")
+            self.active_lineedit = None
+        self._check_duplicates()
+
+    def _activate_field(self, line_edit, key_name, display_name=""):
+        if self.active_lineedit == line_edit:
             self.active_lineedit = None
         else:
-            line_edit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
             self.active_lineedit = line_edit
-    
+        self._check_duplicates()
+
     def _check_duplicates(self):
         duplicates = []
         seen = {}
@@ -506,10 +541,10 @@ class KeyBindingsDialog(QDialog):
                 duplicates.append(seen[value])
             elif value:
                 seen[value] = key
-        
+
         for helper in self.capture_helpers:
             helper.line_edit.setStyleSheet("")
-        
+
         if duplicates:
             self.warning_label.setText(f"⚠️ Duplicate bindings: {list(set([self.keybindings.get(d, d) for d in duplicates]))}")
             self.warning_label.setStyleSheet("color: #e74c3c; font-size: 11px;")
@@ -520,9 +555,15 @@ class KeyBindingsDialog(QDialog):
         else:
             self.warning_label.setText("⚠️ Keybindings are not saved in config")
             self.warning_label.setStyleSheet("color: #888888; font-size: 11px;")
-        
+
         if self.active_lineedit:
-            self.active_lineedit.setStyleSheet("border: 2px solid #ffb300; background-color: #2a2a1a;")
+            active_key = None
+            for h in self.capture_helpers:
+                if h.line_edit == self.active_lineedit:
+                    active_key = h.key_name
+                    break
+            if active_key is not None and active_key not in duplicates:
+                self.active_lineedit.setStyleSheet(self._KEYBIND_ACTIVE_STYLE)
     
     def _save(self) -> None:
         duplicates = []
@@ -1236,13 +1277,13 @@ class MainWindow(QMainWindow):
         nav_layout = QHBoxLayout(nav_frame)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         
-        prev_btn = QPushButton("◀ Previous")
-        prev_btn.clicked.connect(self._previous_file)
-        nav_layout.addWidget(prev_btn)
-        
-        next_btn = QPushButton("Next ▶")
-        next_btn.clicked.connect(self._next_file)
-        nav_layout.addWidget(next_btn)
+        self.prev_btn = QPushButton("◀ Previous")
+        self.prev_btn.clicked.connect(self._previous_file)
+        nav_layout.addWidget(self.prev_btn)
+
+        self.next_btn = QPushButton("Next ▶")
+        self.next_btn.clicked.connect(self._next_file)
+        nav_layout.addWidget(self.next_btn)
         
         controls_layout.addWidget(nav_frame)
         
@@ -1400,8 +1441,8 @@ class MainWindow(QMainWindow):
     
     def _flash_button(self, btn: QPushButton) -> None:
         original_style = btn.styleSheet()
-        btn.setStyleSheet(original_style + "border: 2px solid #ffffff;")
-        QTimer.singleShot(150, lambda: btn.setStyleSheet(original_style))
+        btn.setStyleSheet(original_style + "border: 2px solid #4a9eff;")
+        QTimer.singleShot(180, lambda b=btn, s=original_style: b.setStyleSheet(s))
     
     def mousePressEvent(self, event):
         if self.pages.currentIndex() != 1:
@@ -1481,12 +1522,14 @@ class MainWindow(QMainWindow):
         source, _ = self._get_current_file()
         if source and source.has_previous:
             source.retreat()
+            self._flash_button(self.prev_btn)
             self._update_viewer()
-    
+
     def _next_file(self) -> None:
         source, _ = self._get_current_file()
         if source and source.has_next:
             source.advance()
+            self._flash_button(self.next_btn)
             self._update_viewer()
     
     def _revert_last(self) -> None:
