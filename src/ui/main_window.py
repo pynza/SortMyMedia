@@ -2,17 +2,12 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QFrame, QMessageBox,
     QSizePolicy, QScrollArea, QStatusBar, QStackedWidget, QInputDialog,
-    QListWidgetItem, QDialog, QSlider
+    QListWidgetItem, QDialog, QSlider, QFormLayout, QLineEdit
 )
-from PyQt6.QtCore import pyqtSignal, QTimer, QUrl, Qt, QSize
+from PyQt6.QtCore import pyqtSignal, QTimer, QUrl, Qt, QSize, QObject
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
-from PyQt6.QtCore import pyqtSignal, QTimer, QUrl
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QIcon, QImage, QKeyEvent, QMouseEvent
 from pathlib import Path
 from typing import Optional
 import sys
@@ -281,14 +276,211 @@ class ConfigDialog(QDialog):
             self._refresh_list()
 
 
+class KeyCaptureHelper(QObject):
+    def __init__(self, line_edit, key_name, keybindings, callback):
+        super().__init__()
+        self.line_edit = line_edit
+        self.key_name = key_name
+        self.keybindings = keybindings
+        self.callback = callback
+    
+    def eventFilter(self, obj, event):
+        if event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Escape, Qt.Key.Key_Return):
+                return True
+            
+            modifiers = event.modifiers()
+            key_text = ""
+            if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                key_text += "Shift+"
+            if modifiers & Qt.KeyboardModifier.ControlModifier:
+                key_text += "Ctrl+"
+            if modifiers & Qt.KeyboardModifier.AltModifier:
+                key_text += "Alt+"
+            
+            if event.text() and event.text().isprintable():
+                key_text += event.text().upper()
+            elif key == Qt.Key.Key_Left:
+                key_text += "Left"
+            elif key == Qt.Key.Key_Right:
+                key_text += "Right"
+            elif key == Qt.Key.Key_Up:
+                key_text += "Up"
+            elif key == Qt.Key.Key_Down:
+                key_text += "Down"
+            elif key == Qt.Key.Key_Space:
+                key_text += "Space"
+            elif key == Qt.Key.Key_Backspace:
+                key_text += "Backspace"
+            elif key == Qt.Key.Key_Delete:
+                key_text += "Delete"
+            elif Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+                key_text += chr(key)
+            elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+                key_text += chr(key)
+            elif Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
+                key_text += f"F{key - Qt.Key.Key_F1 + 1}"
+            
+            if key_text:
+                self.line_edit.setText(key_text)
+                self.keybindings[self.key_name] = key_text
+                self.callback()
+                return True
+        
+        elif event.type() == event.Type.MouseButtonPress:
+            button = event.button()
+            button_map = {
+                Qt.MouseButton.LeftButton: "MouseLeft",
+                Qt.MouseButton.RightButton: "MouseRight",
+                Qt.MouseButton.MiddleButton: "MouseMiddle",
+                Qt.MouseButton.XButton1: "MouseX1",
+                Qt.MouseButton.XButton2: "MouseX2",
+            }
+            if button in button_map:
+                self.line_edit.setText(button_map[button])
+                self.keybindings[self.key_name] = button_map[button]
+                self.callback()
+                return True
+        
+        return super().eventFilter(obj, event)
+
+
+class KeyBindingsDialog(QDialog):
+    keybindings_changed = pyqtSignal(dict)
+    
+    def __init__(self, keybindings: dict, destinations: list, parent=None):
+        super().__init__(parent)
+        self.keybindings = keybindings.copy()
+        self.destinations = destinations
+        self.capture_helpers = []
+        self.setWindowTitle("Key Bindings")
+        self.setMinimumWidth(400)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1e1e1e;
+            }
+            QLabel {
+                color: #e0e0e0;
+            }
+            QPushButton {
+                background-color: #3a3a3a;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: #ffffff;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QLineEdit {
+                background-color: #252525;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #4a9eff;
+                font-weight: bold;
+            }
+        """)
+        self._create_layout()
+    
+    def _create_layout(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        nav_label = QLabel("Navigation Keys")
+        nav_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(nav_label)
+        
+        nav_frame = QFrame()
+        nav_layout = QFormLayout(nav_frame)
+        nav_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        self.prev_key = QLineEdit(self.keybindings.get('previous', 'Left'))
+        self.prev_key.setReadOnly(True)
+        self._setup_key_capture(self.prev_key, 'previous')
+        nav_layout.addRow("Previous:", self.prev_key)
+        
+        self.next_key = QLineEdit(self.keybindings.get('next', 'Right'))
+        self.next_key.setReadOnly(True)
+        self._setup_key_capture(self.next_key, 'next')
+        nav_layout.addRow("Next:", self.next_key)
+        
+        self.undo_key = QLineEdit(self.keybindings.get('undo', 'Z'))
+        self.undo_key.setReadOnly(True)
+        self._setup_key_capture(self.undo_key, 'undo')
+        nav_layout.addRow("Undo:", self.undo_key)
+        
+        layout.addWidget(nav_frame)
+        
+        if self.destinations:
+            dest_label = QLabel("Destination Folders")
+            dest_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            layout.addWidget(dest_label)
+            
+            self.dest_widgets = {}
+            dest_frame = QFrame()
+            dest_layout = QFormLayout(dest_frame)
+            dest_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            
+            for i, dest in enumerate(self.destinations):
+                name = dest[0]
+                current_key = dest[2] if len(dest) > 2 else ''
+                key_edit = QLineEdit(current_key)
+                key_edit.setReadOnly(True)
+                key_name = f"dest_{i}"
+                self._setup_key_capture(key_edit, key_name)
+                dest_layout.addRow(f"{name}:", key_edit)
+                self.dest_widgets[key_name] = key_edit
+            
+            layout.addWidget(dest_frame)
+        
+        hint_label = QLabel("Click a field and press a key to assign")
+        hint_label.setStyleSheet("color: #888888; font-size: 11px;")
+        layout.addWidget(hint_label)
+        
+        layout.addStretch()
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("Save")
+        save_btn.setStyleSheet("background-color: #1976d2;")
+        save_btn.clicked.connect(self._save)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def _setup_key_capture(self, line_edit, key_name):
+        helper = KeyCaptureHelper(line_edit, key_name, self.keybindings, lambda: None)
+        line_edit.installEventFilter(helper)
+        self.capture_helpers.append(helper)
+    
+    def _save(self) -> None:
+        self.keybindings_changed.emit(self.keybindings)
+        self.accept()
+
+
 class SetupPage(QWidget):
+    keybindings_changed = pyqtSignal(dict)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.source_folders: list[Path] = []
-        self.dest_folders: list[tuple[str, Path]] = []
+        self.dest_folders: list[tuple[str, Path, str]] = []
         self.folder_count = 0
         self.config_manager = ConfigManager()
         self.active_config_name: Optional[str] = None
+        self.keybindings: dict = {
+            'previous': 'Left',
+            'next': 'Right',
+            'undo': 'Z'
+        }
         
         self._create_layout()
         
@@ -311,6 +503,10 @@ class SetupPage(QWidget):
         config_btn = QPushButton("⚙️ Config")
         config_btn.clicked.connect(self._show_config_menu)
         title_layout.addWidget(config_btn)
+        
+        keys_btn = QPushButton("⌨️ Keys")
+        keys_btn.clicked.connect(self._show_keybindings)
+        title_layout.addWidget(keys_btn)
         
         layout.addLayout(title_layout)
         
@@ -457,7 +653,8 @@ class SetupPage(QWidget):
             dest_path = Path(dest.path)
             if dest_path.exists():
                 self.folder_count += 1
-                self.dest_folders.append((dest.name, dest_path))
+                key = dest.key if hasattr(dest, 'key') else ''
+                self.dest_folders.append((dest.name, dest_path, key))
                 self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
         
         self._check_ready()
@@ -539,7 +736,8 @@ class SetupPage(QWidget):
                 dest_path = Path(dest.path)
                 if dest_path.exists():
                     self.folder_count += 1
-                    self.dest_folders.append((dest.name, dest_path))
+                    key = dest.key if hasattr(dest, 'key') else ''
+                    self.dest_folders.append((dest.name, dest_path, key))
                     self.dest_list.addItem(f"📂 {dest.name} ({dest_path.name})")
             
             self.config_manager.save(self.source_folders, self.dest_folders, name)
@@ -555,12 +753,25 @@ class SetupPage(QWidget):
                 self.source_list.addItem(f"📁 {path.name}")
                 self._check_ready()
     
+    def _show_keybindings(self) -> None:
+        dialog = KeyBindingsDialog(self.keybindings, self.dest_folders, self)
+        dialog.keybindings_changed.connect(self._on_keybindings_changed)
+        dialog.exec()
+    
+    def _on_keybindings_changed(self, keybindings: dict) -> None:
+        self.keybindings = keybindings
+        for i in range(len(self.dest_folders)):
+            key = keybindings.get(f'dest_{i}', '')
+            name, path, _ = self.dest_folders[i]
+            self.dest_folders[i] = (name, path, key)
+        self.keybindings_changed.emit(self.keybindings)
+    
     def _add_destination(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Destination Folder")
         if path:
             path = Path(path)
             name = path.name
-            self.dest_folders.append((name, path))
+            self.dest_folders.append((name, path, ''))
             self.dest_list.addItem(f"📂 {name}")
             self._check_ready()
     
@@ -853,10 +1064,18 @@ class MainWindow(QMainWindow):
         
         self.setup_page = SetupPage()
         self.setup_page.start_btn.clicked.connect(self._on_start_sorting)
+        self.setup_page.keybindings_changed.connect(self._on_keybindings_changed)
         
         self.main_page = QWidget()
         self.pages.addWidget(self.setup_page)
         self.pages.addWidget(self.main_page)
+        
+        self.keybindings: dict = {
+            'previous': 'Left',
+            'next': 'Right',
+            'undo': 'Z'
+        }
+        self._dest_buttons: dict[str, QPushButton] = {}
         
     def _on_start_sorting(self) -> None:
         if not self.setup_page.source_folders:
@@ -866,12 +1085,16 @@ class MainWindow(QMainWindow):
         for path in self.setup_page.source_folders:
             self.session.add_source_folder(path)
         
-        for name, path in self.setup_page.dest_folders:
+        for name, path, key in self.setup_page.dest_folders:
             self.session.add_destination_folder(path, name)
         
+        self.keybindings = self.setup_page.keybindings.copy()
         self._create_main_layout()
         self.pages.setCurrentIndex(1)
         self._update_viewer()
+    
+    def _on_keybindings_changed(self, keybindings: dict) -> None:
+        self.keybindings = keybindings.copy()
     
     def _back_to_setup(self) -> None:
         self.video_player.stop()
@@ -992,11 +1215,16 @@ class MainWindow(QMainWindow):
         self._display_file(current)
         
         colors = ["#3498db", "#2ecc71", "#9b59b6", "#e74c3c", "#f39c12", "#1abc9c"]
+        self._dest_buttons.clear()
         for i, dest in enumerate(self.session.destination_folders):
-            btn = QPushButton(f"📂 {dest.name}")
+            key = self.setup_page.keybindings.get(f'dest_{i}', '')
+            key_text = f" [{key}]" if key else ""
+            btn = QPushButton(f"📂 {dest.name}{key_text}")
             btn.setStyleSheet(f"background-color: {colors[i % len(colors)]}; border-radius: 6px; padding: 10px 15px;")
-            btn.clicked.connect(lambda _, d=dest: self._sort_file(d))
+            btn.clicked.connect(lambda _, d=dest, b=btn: self._sort_file(d, b))
             self.sort_buttons_layout.addWidget(btn)
+            if key:
+                self._dest_buttons[key] = btn
     
     def _display_file(self, path: Path) -> None:
         ext = path.suffix.lower()
@@ -1072,7 +1300,7 @@ class MainWindow(QMainWindow):
             self.viewer.clear()
             self.viewer.setText(f"Error loading PDF\n{e}")
     
-    def _sort_file(self, dest: FolderConfig) -> None:
+    def _sort_file(self, dest: FolderConfig, btn: QPushButton = None) -> None:
         source, current = self._get_current_file()
         if source is None or current is None:
             return
@@ -1080,9 +1308,84 @@ class MainWindow(QMainWindow):
         success = self.session.move_file_to_destination(source, dest)
         
         if success:
+            if btn:
+                self._flash_button(btn)
             self._update_viewer()
         else:
             QMessageBox.critical(self, "Error", f"Failed to move file: {current.name}")
+    
+    def _flash_button(self, btn: QPushButton) -> None:
+        original_style = btn.styleSheet()
+        btn.setStyleSheet(original_style + "border: 2px solid #ffffff;")
+        QTimer.singleShot(150, lambda: btn.setStyleSheet(original_style))
+    
+    def mousePressEvent(self, event):
+        if self.pages.currentIndex() != 1:
+            super().mousePressEvent(event)
+            return
+        
+        button = event.button()
+        button_map = {
+            Qt.MouseButton.LeftButton: "MouseLeft",
+            Qt.MouseButton.RightButton: "MouseRight",
+            Qt.MouseButton.MiddleButton: "MouseMiddle",
+            Qt.MouseButton.XButton1: "MouseX1",
+            Qt.MouseButton.XButton2: "MouseX2",
+        }
+        key_text = button_map.get(button, "")
+        
+        if key_text and key_text in self._dest_buttons:
+            btn = self._dest_buttons[key_text]
+            for i, dest in enumerate(self.session.destination_folders):
+                if self.setup_page.dest_folders[i][0] == dest.name:
+                    self._sort_file(dest, btn)
+                    break
+        else:
+            super().mousePressEvent(event)
+    
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self.pages.currentIndex() != 1:
+            super().keyPressEvent(event)
+            return
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        key_text = ""
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            key_text += "Shift+"
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            key_text += "Ctrl+"
+        if modifiers & Qt.KeyboardModifier.AltModifier:
+            key_text += "Alt+"
+        
+        if event.text() and event.text().isprintable():
+            key_text += event.text().upper()
+        else:
+            key_map = {
+                Qt.Key_Left: "Left",
+                Qt.Key_Right: "Right",
+                Qt.Key_Up: "Up",
+                Qt.Key_Down: "Down",
+                Qt.Key_Space: "Space",
+                Qt.Key_Backspace: "Backspace",
+                Qt.Key_Delete: "Delete",
+            }
+            key_text += key_map.get(key, "")
+        
+        if key_text == self.keybindings.get('previous', 'Left'):
+            self._previous_file()
+        elif key_text == self.keybindings.get('next', 'Right'):
+            self._next_file()
+        elif key_text == self.keybindings.get('undo', 'Z'):
+            self._revert_last()
+        elif key_text in self._dest_buttons:
+            btn = self._dest_buttons[key_text]
+            for i, dest in enumerate(self.session.destination_folders):
+                if self.setup_page.dest_folders[i][0] == dest.name:
+                    self._sort_file(dest, btn)
+                    break
+        else:
+            super().keyPressEvent(event)
     
     def _skip_file(self) -> None:
         source, _ = self._get_current_file()
@@ -1104,6 +1407,7 @@ class MainWindow(QMainWindow):
     
     def _revert_last(self) -> None:
         if self.session.revert_last():
+            self._flash_button(self.revert_btn)
             self._update_viewer()
         else:
             QMessageBox.warning(self, "Undo", "Nothing to undo")

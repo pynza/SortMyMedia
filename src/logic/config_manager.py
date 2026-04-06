@@ -1,13 +1,22 @@
 import yaml
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 
 @dataclass
 class FolderConfigData:
     name: str
     path: str
+    key: str = ""
+
+
+@dataclass
+class KeyBindings:
+    previous: str = "Left"
+    next: str = "Right"
+    undo: str = "Z"
+    destinations: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -15,12 +24,15 @@ class AppConfig:
     version: str = "1.0"
     sources: list = None
     destinations: list = None
+    keybindings: KeyBindings = None
 
     def __post_init__(self):
         if self.sources is None:
             self.sources = []
         if self.destinations is None:
             self.destinations = []
+        if self.keybindings is None:
+            self.keybindings = KeyBindings()
 
 
 class ConfigManager:
@@ -38,15 +50,16 @@ class ConfigManager:
         return self.configs_dir / f"{safe_name}.yaml"
 
     def save(self, sources: list[Path], destinations: list[tuple[str, Path]], 
-             name: str) -> Path:
+             name: str, keybindings: Optional[KeyBindings] = None) -> Path:
         path = self._get_config_path(name)
 
         config = AppConfig(
             sources=[str(s) for s in sources],
             destinations=[
-                FolderConfigData(name=dest_name, path=str(dest_path)) 
-                for dest_name, dest_path in destinations
-            ]
+                FolderConfigData(name=dest_name, path=str(dest_path), key=key or "")
+                for dest_name, dest_path, key in destinations
+            ],
+            keybindings=keybindings or KeyBindings()
         )
 
         with open(path, 'w') as f:
@@ -71,13 +84,26 @@ class ConfigManager:
         if not data:
             return None
 
+        kb_data = data.get('keybindings', {})
+        keybindings = KeyBindings(
+            previous=kb_data.get('previous', 'Left'),
+            next=kb_data.get('next', 'Right'),
+            undo=kb_data.get('undo', 'Z'),
+            destinations=kb_data.get('destinations', {})
+        )
+
         return AppConfig(
             version=data.get('version', '1.0'),
             sources=data.get('sources', []),
             destinations=[
-                FolderConfigData(name=d['name'], path=d['path'])
+                FolderConfigData(
+                    name=d['name'], 
+                    path=d['path'],
+                    key=d.get('key', '')
+                )
                 for d in data.get('destinations', [])
-            ]
+            ],
+            keybindings=keybindings
         )
 
     def delete(self, name: str) -> bool:
@@ -124,13 +150,14 @@ class ConfigManager:
         return None
 
     def export_to_file(self, sources: list[Path], destinations: list[tuple[str, Path]],
-                       path: Path) -> Path:
+                       path: Path, keybindings: Optional[KeyBindings] = None) -> Path:
         config = AppConfig(
             sources=[str(s) for s in sources],
             destinations=[
-                FolderConfigData(name=dest_name, path=str(dest_path)) 
-                for dest_name, dest_path in destinations
-            ]
+                FolderConfigData(name=dest_name, path=str(dest_path), key=key or "")
+                for dest_name, dest_path, key in destinations
+            ],
+            keybindings=keybindings or KeyBindings()
         )
 
         with open(path, 'w') as f:
