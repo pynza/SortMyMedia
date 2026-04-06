@@ -29,19 +29,19 @@ class FolderConfig:
 
     @property
     def has_next(self) -> bool:
-        return self.file_index < len(self.files) - 1
+        return len(self.files) > 0
 
     @property
     def has_previous(self) -> bool:
-        return self.file_index > 0
+        return len(self.files) > 0
 
     def advance(self) -> None:
-        if self.has_next:
-            self.file_index += 1
+        if len(self.files) > 0:
+            self.file_index = (self.file_index + 1) % len(self.files)
 
     def retreat(self) -> None:
-        if self.has_previous:
-            self.file_index -= 1
+        if len(self.files) > 0:
+            self.file_index = (self.file_index - 1) % len(self.files)
 
     def mark_as_moved(self) -> None:
         self.advance()

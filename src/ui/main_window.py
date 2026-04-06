@@ -941,10 +941,6 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.sort_buttons_frame)
         
         layout.addWidget(controls)
-        
-        self.status_bar = QStatusBar()
-        self.status_bar.setStyleSheet("background-color: #1a1a1a; color: #888888;")
-        self.setStatusBar(self.status_bar)
     
     def _get_current_file(self) -> tuple[Optional[FolderConfig], Optional[Path]]:
         for source in self.session.source_folders:
@@ -988,8 +984,6 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet(f"background-color: {colors[i % len(colors)]}; border-radius: 6px; padding: 10px 15px;")
             btn.clicked.connect(lambda _, d=dest: self._sort_file(d))
             self.sort_buttons_layout.addWidget(btn)
-        
-        self._update_status()
     
     def _display_file(self, path: Path) -> None:
         ext = path.suffix.lower()
@@ -1094,12 +1088,6 @@ class MainWindow(QMainWindow):
         if source and source.has_next:
             source.advance()
             self._update_viewer()
-    
-    def _update_status(self) -> None:
-        total = self.session.get_total_files()
-        processed = self.session.get_processed_files()
-        remaining = total - processed
-        self.status_bar.showMessage(f"📁 Files: {remaining} remaining ({processed}/{total} processed)")
 
 
 def main() -> None:
