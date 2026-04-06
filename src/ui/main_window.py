@@ -935,6 +935,13 @@ class MainWindow(QMainWindow):
         
         controls_layout.addStretch()
         
+        self.revert_btn = QPushButton("↩ Undo")
+        self.revert_btn.setStyleSheet("background-color: #c0392b;")
+        self.revert_btn.clicked.connect(self._revert_last)
+        controls_layout.addWidget(self.revert_btn)
+        
+        controls_layout.addSpacing(20)
+        
         self.sort_buttons_frame = QWidget()
         self.sort_buttons_layout = QHBoxLayout(self.sort_buttons_frame)
         self.sort_buttons_layout.setContentsMargins(0, 0, 0, 0)
@@ -1088,6 +1095,12 @@ class MainWindow(QMainWindow):
         if source and source.has_next:
             source.advance()
             self._update_viewer()
+    
+    def _revert_last(self) -> None:
+        if self.session.revert_last():
+            self._update_viewer()
+        else:
+            QMessageBox.warning(self, "Undo", "Nothing to undo")
 
 
 def main() -> None:
