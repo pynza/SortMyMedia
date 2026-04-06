@@ -874,9 +874,15 @@ class MainWindow(QMainWindow):
         self._update_viewer()
     
     def _back_to_setup(self) -> None:
+        self.video_player.stop()
+        self.session = Session()
         self.pages.setCurrentIndex(0)
     
     def _create_main_layout(self) -> None:
+        old_layout = self.main_page.layout()
+        if old_layout:
+            QWidget().setLayout(old_layout)
+        
         layout = QVBoxLayout(self.main_page)
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(5)
