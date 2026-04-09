@@ -121,6 +121,129 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 """
 
 
+class InputDialog(QDialog):
+    def __init__(self, title, label, parent=None, default_text=""):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(350)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        
+        self.setStyleSheet(DARK_STYLE + "QDialog { border-radius: 12px; }")
+        self._result = ""
+        
+        central = QWidget()
+        central.setObjectName("dialog_central")
+        central.setStyleSheet("""
+            QWidget#dialog_central {
+                background-color: #1e1e1e;
+                border-radius: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.addWidget(central)
+        
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        lbl = QLabel(label)
+        lbl.setStyleSheet("font-size: 14px;")
+        layout.addWidget(lbl)
+        
+        self.input = QLineEdit(default_text)
+        self.input.setStyleSheet("padding: 8px; font-size: 14px;")
+        layout.addWidget(self.input)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        ok_btn = QPushButton("OK")
+        ok_btn.setStyleSheet("background-color: #1976d2;")
+        ok_btn.clicked.connect(self._on_ok)
+        btn_layout.addWidget(ok_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def _on_ok(self):
+        self._result = self.input.text()
+        if self._result:
+            self.accept()
+    
+    def get_result(self):
+        return self._result
+
+
+class MessageDialog(QDialog):
+    DIALOG_STYLES = {
+        "info": "#4fc3f7",
+        "warning": "#ffa726",
+        "error": "#ef5350",
+        "success": "#66bb6a",
+    }
+    
+    def __init__(self, title, message, dialog_type="info", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(350)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        
+        color = self.DIALOG_STYLES.get(dialog_type, "#4fc3f7")
+        self.setStyleSheet(DARK_STYLE + f"""
+            QDialog {{ border-radius: 12px; }}
+            QLabel#icon {{ color: {color}; font-size: 32px; }}
+        """)
+        
+        central = QWidget()
+        central.setObjectName("dialog_central")
+        central.setStyleSheet("""
+            QWidget#dialog_central {
+                background-color: #1e1e1e;
+                border-radius: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.addWidget(central)
+        
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        icons = {"info": "ℹ️", "warning": "⚠️", "error": "❌", "success": "✅"}
+        icon_label = QLabel(icons.get(dialog_type, "ℹ️"))
+        icon_label.setObjectName("icon")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+        
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color};")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        msg_label = QLabel(message)
+        msg_label.setStyleSheet("font-size: 13px; color: #e0e0e0;")
+        msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg_label.setWordWrap(True)
+        layout.addWidget(msg_label)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        ok_btn = QPushButton("OK")
+        ok_btn.setStyleSheet("background-color: #1976d2;")
+        ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(ok_btn)
+        
+        layout.addLayout(btn_layout)
+
+
 class ConfigDialog(QDialog):
     config_loaded = pyqtSignal(object, str)
     config_saved = pyqtSignal(str)
@@ -134,13 +257,41 @@ class ConfigDialog(QDialog):
         
         self.setWindowTitle("Configurations")
         self.setMinimumSize(500, 400)
-        self.setStyleSheet(DARK_STYLE)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet(DARK_STYLE + "QDialog { border-radius: 12px; }")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
         
+        self._drag_pos = None
         self._create_layout()
         self._refresh_list()
     
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseMoveEvent(self, event):
+        if self._drag_pos:
+            delta = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        
     def _create_layout(self) -> None:
-        layout = QVBoxLayout(self)
+        central = QWidget()
+        central.setObjectName("dialog_central")
+        central.setStyleSheet("""
+            QWidget#dialog_central {
+                background-color: #1e1e1e;
+                border-radius: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.addWidget(central)
+        
+        layout = QVBoxLayout(central)
         layout.setContentsMargins(20, 20, 20, 20)
         
         title = QLabel("Saved Configurations")
@@ -219,8 +370,9 @@ class ConfigDialog(QDialog):
                     break
     
     def _on_new(self) -> None:
-        name, ok = QInputDialog.getText(self, "New Configuration", "Enter configuration name:")
-        if ok and name:
+        dialog = InputDialog("New Configuration", "Enter configuration name:", self)
+        if dialog.exec() and dialog.get_result():
+            name = dialog.get_result()
             if self.parent_setup and hasattr(self.parent_setup, '_save_as_config'):
                 if self.parent_setup._save_as_config(name):
                     self.config_saved.emit(name)
@@ -254,8 +406,9 @@ class ConfigDialog(QDialog):
         if not old_name:
             return
         
-        new_name, ok = QInputDialog.getText(self, "Rename Configuration", "Enter new name:", text=old_name)
-        if ok and new_name and new_name != old_name:
+        dialog = InputDialog("Rename Configuration", "Enter new name:", self, old_name)
+        if dialog.exec() and dialog.get_result():
+            new_name = dialog.get_result()
             if self.config_manager.rename(old_name, new_name):
                 self._refresh_list()
                 QMessageBox.information(self, "Success", f"Renamed to '{new_name}'.")
@@ -361,6 +514,11 @@ class KeyBindingsDialog(QDialog):
         self.active_lineedit = None
         self.setWindowTitle("Key Bindings")
         self.setMinimumWidth(400)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        
+        self._drag_pos = None
+        
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e1e;
@@ -396,10 +554,36 @@ class KeyBindingsDialog(QDialog):
                 color: #e74c3c;
             }
         """)
+        
         self._create_layout()
     
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseMoveEvent(self, event):
+        if self._drag_pos:
+            delta = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+    
     def _create_layout(self) -> None:
-        layout = QVBoxLayout(self)
+        central = QWidget()
+        central.setObjectName("dialog_central")
+        central.setStyleSheet("""
+            QWidget#dialog_central {
+                background-color: #1e1e1e;
+                border-radius: 12px;
+            }
+        """)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.addWidget(central)
+        
+        layout = QVBoxLayout(central)
         layout.setSpacing(15)
         
         nav_label = QLabel("Navigation Keys")
@@ -813,8 +997,11 @@ class SetupPage(QWidget):
                 QMessageBox.warning(self, "Error", "Failed to load configuration from file.")
                 return
             
-            name, ok = QInputDialog.getText(self, "Import Configuration", "Enter a name for this configuration:")
-            if not ok or not name:
+            dialog = InputDialog("Import Configuration", "Enter a name for this configuration:", self)
+            if not dialog.exec():
+                return
+            name = dialog.get_result()
+            if not name:
                 return
             
             self.source_folders = []
@@ -1409,7 +1596,7 @@ class MainWindow(QMainWindow):
                 self._flash_button(btn)
             self._update_viewer()
         else:
-            QMessageBox.critical(self, "Error", f"Failed to move file: {current.name}")
+            MessageDialog("Error", f"Failed to move file: {current.name}", "error", self).exec()
     
     def _flash_button(self, btn: QPushButton) -> None:
         original_style = btn.styleSheet()
@@ -1485,7 +1672,7 @@ class MainWindow(QMainWindow):
             self._flash_button(self.revert_btn)
             self._update_viewer()
         else:
-            QMessageBox.warning(self, "Undo", "Nothing to undo")
+            MessageDialog("Undo", "Nothing to undo", "warning", self).exec()
 
 
 def main() -> None:
