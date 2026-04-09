@@ -24,7 +24,7 @@ Assign custom keyboard and mouse shortcuts to any destination folder for lightni
 
 - **Navigation**: Previous/Next file
 - **Undo**: Revert last sort
-- **Destinations**: Assign any key or mouse button
+- **Destinations**: Assign any key
 
 ![Keybindings configuration dialog](https://github.com/user-attachments/assets/6fb3fe79-75b3-4f6a-a0a8-a19dc34bc860)
 

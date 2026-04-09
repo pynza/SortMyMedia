@@ -346,21 +346,6 @@ class KeyCaptureHelper(QObject):
                 self.callback()
                 return True
         
-        elif event.type() == event.Type.MouseButtonPress:
-            button = event.button()
-            button_map = {
-                Qt.MouseButton.LeftButton: "MouseLeft",
-                Qt.MouseButton.RightButton: "MouseRight",
-                Qt.MouseButton.MiddleButton: "MouseMiddle",
-                Qt.MouseButton.XButton1: "MouseX1",
-                Qt.MouseButton.XButton2: "MouseX2",
-            }
-            if button in button_map:
-                self.line_edit.setText(button_map[button])
-                self.keybindings[self.key_name] = button_map[button]
-                self.callback()
-                return True
-        
         return super().eventFilter(obj, event)
 
 
@@ -507,12 +492,6 @@ class KeyBindingsDialog(QDialog):
             on_focus_out=self._on_capture_focus_out,
         )
         line_edit.installEventFilter(helper)
-        
-        def on_mouse_press(e):
-            self._activate_field(line_edit, key_name, display_name)
-            QLineEdit.mousePressEvent(line_edit, e)
-
-        line_edit.mousePressEvent = on_mouse_press
 
         self.capture_helpers.append(helper)
 
@@ -523,13 +502,6 @@ class KeyBindingsDialog(QDialog):
     def _on_capture_focus_out(self, line_edit) -> None:
         if self.active_lineedit == line_edit:
             self.active_lineedit = None
-        self._check_duplicates()
-
-    def _activate_field(self, line_edit, key_name, display_name=""):
-        if self.active_lineedit == line_edit:
-            self.active_lineedit = None
-        else:
-            self.active_lineedit = line_edit
         self._check_duplicates()
 
     def _check_duplicates(self):
@@ -1443,30 +1415,6 @@ class MainWindow(QMainWindow):
         original_style = btn.styleSheet()
         btn.setStyleSheet(original_style + "border: 2px solid #4a9eff;")
         QTimer.singleShot(180, lambda b=btn, s=original_style: b.setStyleSheet(s))
-    
-    def mousePressEvent(self, event):
-        if self.pages.currentIndex() != 1:
-            super().mousePressEvent(event)
-            return
-        
-        button = event.button()
-        button_map = {
-            Qt.MouseButton.LeftButton: "MouseLeft",
-            Qt.MouseButton.RightButton: "MouseRight",
-            Qt.MouseButton.MiddleButton: "MouseMiddle",
-            Qt.MouseButton.XButton1: "MouseX1",
-            Qt.MouseButton.XButton2: "MouseX2",
-        }
-        key_text = button_map.get(button, "")
-        
-        if key_text and key_text in self._dest_buttons:
-            btn = self._dest_buttons[key_text]
-            for i, dest in enumerate(self.session.destination_folders):
-                if self.setup_page.dest_folders[i][0] == dest.name:
-                    self._sort_file(dest, btn)
-                    break
-        else:
-            super().mousePressEvent(event)
     
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if self.pages.currentIndex() != 1:
